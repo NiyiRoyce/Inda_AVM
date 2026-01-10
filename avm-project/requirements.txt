@@ -1,0 +1,12 @@
+pandas
+numpy
+scikit-learn
+joblib
+google-cloud-bigquery
+google-cloud-storage
+pandas
+numpy
+scikit-learn
+joblib
+google-cloud-bigquery
+google-cloud-storage
