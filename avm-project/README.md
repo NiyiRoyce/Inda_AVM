@@ -1,7 +1,7 @@
 # AVM Project
 # Automated Valuation Model (AVM) for Real Estate
 
-Production-ready machine learning system for automated property valuation in Nigeria.
+Production-ready machine learning system for automated property valuation.
 
 ## 🏗️ Architecture
 
