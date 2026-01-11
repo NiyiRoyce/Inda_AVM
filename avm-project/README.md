@@ -7,19 +7,128 @@ Production-ready machine learning system for automated property valuation in Nig
 
 ```
 avm-project/
-├── config/              # Configuration files
-├── src/                 # Source code
-│   ├── auth/           # GCP authentication
-│   ├── data/           # Data loading and validation
-│   ├── preprocessing/  # Data cleaning and transformation
-│   ├── features/       # Feature engineering
-│   ├── models/         # ML models
-│   ├── evaluation/     # Metrics and diagnostics
-│   └── utils/          # Utilities
-├── pipelines/          # Training and inference pipelines
-├── deployment/         # Vertex AI deployment
-├── scripts/            # CLI scripts
-└── artifacts/          # Saved models
+├── README.md
+├── .env.example
+├── .gitignore
+├── requirements.txt
+├── setup.py
+├── Makefile                      # train / test / deploy shortcuts
+│
+├── config/
+│   ├── __init__.py
+│   ├── settings.py               # GCP project, dataset, table names
+│   ├── features.py               # Canonical feature list
+│   ├── model_config.py           # Hyperparameters, CV, thresholds
+│   └── env.py                    # Env-specific config (dev/stg/prod)
+│
+├── src/
+│   ├── __init__.py
+│   │
+│   ├── auth/
+│   │   ├── __init__.py
+│   │   └── gcp_auth.py
+│   │
+│   ├── data/
+│   │   ├── __init__.py
+│   │   ├── bigquery_client.py
+│   │   ├── loader.py
+│   │   ├── validator.py
+│   │   └── contracts/            # 🔐 Data contracts
+│   │       ├── __init__.py
+│   │       ├── raw_schema.py
+│   │       ├── feature_schema.py
+│   │       └── prediction_schema.py
+│   │
+│   ├── preprocessing/
+│   │   ├── __init__.py
+│   │   ├── cleaners.py
+│   │   ├── transformers.py
+│   │   ├── imputers.py
+│   │   └── validators.py         # Inference-safe checks
+│   │
+│   ├── features/
+│   │   ├── __init__.py
+│   │   ├── engineering.py
+│   │   ├── selectors.py
+│   │   └── spatial.py            # Amenities, geo, address features
+│   │
+│   ├── models/
+│   │   ├── __init__.py
+│   │   ├── base.py
+│   │   ├── linear.py
+│   │   ├── residual.py
+│   │   ├── ensemble.py
+│   │   ├── trainer.py
+│   │   └── registry.py           # Model + artifact registration
+│   │
+│   ├── evaluation/
+│   │   ├── __init__.py
+│   │   ├── metrics.py
+│   │   ├── diagnostics.py
+│   │   └── drift.py              # Feature & prediction drift
+│   │
+│   ├── serving/
+│   │   ├── __init__.py
+│   │   ├── request_parser.py     # Vertex request normalization
+│   │   ├── response_formatter.py
+│   │   └── guards.py             # Fail-safe prediction logic
+│   │
+│   └── utils/
+│       ├── __init__.py
+│       ├── logging.py
+│       ├── helpers.py
+│       └── monitoring.py         # Stats → BigQuery / logs
+│
+├── pipelines/
+│   ├── __init__.py
+│   ├── train_pipeline.py
+│   ├── inference_pipeline.py
+│   └── validation_pipeline.py    # Schema + drift validation
+│
+├── deployment/
+│   ├── predictor.py              # Vertex AI Predictor
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── deploy.sh
+│   └── vertex_config.yaml        # Machine, autoscaling, traffic split
+│
+├── artifacts/
+│   └── vYYYY_MM_DD/               # 🔖 Versioned artifacts
+│       ├── models/
+│       │   ├── linreg.pkl
+│       │   ├── residual_lgbm.pkl
+│       │   └── smearing.pkl
+│       ├── preprocessors/
+│       │   ├── imputer.pkl
+│       │   └── scaler.pkl
+│       └── metadata/
+│           ├── feature_names.json
+│           ├── feature_lineage.json
+│           ├── training_stats.json
+│           └── model_card.md      # Explainability + limitations
+│
+├── notebooks/
+│   ├── 01_eda.ipynb
+│   ├── 02_feature_engineering.ipynb
+│   ├── 03_model_evaluation.ipynb
+│   └── 04_error_analysis.ipynb
+│
+├── tests/
+│   ├── __init__.py
+│   ├── test_data/
+│   ├── test_preprocessing/
+│   ├── test_features/
+│   ├── test_models/
+│   ├── test_serving/
+│   └── test_pipeline/
+│
+└── scripts/
+    ├── train.py
+    ├── predict.py
+    ├── validate_data.py           # Contract + drift checks
+    ├── upload_to_gcs.py
+    └── deploy_to_vertex.py
+
 ```
 
 ## 🚀 Quick Start
