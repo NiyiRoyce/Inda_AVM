@@ -58,7 +58,7 @@ class TrainingPipeline:
             logger.info("Loading data from BigQuery")
             self.df = self.data_loader.load_and_validate(
                 validate=True,
-                remove_invalid=False  # We'll clean manually
+                remove_invalid=True  # We'll clean manually + Bigquery helps us as well
             )
         
         return self.df
