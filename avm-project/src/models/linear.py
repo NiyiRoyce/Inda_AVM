@@ -8,7 +8,7 @@ import joblib
 from pathlib import Path
 from sklearn.linear_model import LinearRegression
 
-from src.models.base import BaseAVMModel
+from ...src.models.base import BaseAVMModel
 from config.model_config import LINEAR_MODEL_CONFIG
 from config.settings import MODEL_ARTIFACTS
 

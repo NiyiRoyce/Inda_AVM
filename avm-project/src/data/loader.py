@@ -5,8 +5,8 @@ import logging
 import pandas as pd
 from typing import Optional
 
-from src.data.bigquery_client import BigQueryClient
-from src.data.validator import DataValidator
+from ...src.data.bigquery_client import BigQueryClient
+from ...src.data.validator import DataValidator
 
 logger = logging.getLogger(__name__)
 

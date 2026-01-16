@@ -50,17 +50,15 @@ ENV/
 *.csv
 *.parquet
 *.json
-!config/*.json
+!config/*.json       # keep config JSON (like settings)
+# Ignore GCP credentials outside config
+credentials.json
+service-account.json
+/config/service_account.json   # optional: ignore service_account.json inside config
 
 # Logs
 *.log
 logs/
-
-# GCP credentials
-*.json
-!config/*.json
-credentials.json
-service-account.json
 
 # Testing
 .pytest_cache/

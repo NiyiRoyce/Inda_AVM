@@ -1,29 +1,47 @@
 FROM python:3.10-slim
 
-# Set working directory
+# ==================================================
+# System setup
+# ==================================================
 WORKDIR /app
 
-# Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
+    ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements
+# ==================================================
+# Python dependencies
+# ==================================================
 COPY requirements.txt .
 
-# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# ==================================================
+# Application code
+# ==================================================
 COPY . .
 
-# Set environment variables
+# ==================================================
+# Environment variables
+# ==================================================
 ENV PYTHONUNBUFFERED=1
 ENV AIP_STORAGE_URI=/app/artifacts
+ENV PORT=8080
 
-# Expose port for serving
+# IMPORTANT:
+# Do NOT set GOOGLE_APPLICATION_CREDENTIALS
+# Vertex AI injects ADC automatically
+
+# ==================================================
+# Runtime
+# ==================================================
 EXPOSE 8080
 
-# Run predictor
-CMD ["python", "-m", "deployment.predictor"]
+CMD ["uvicorn", "api.app:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8080", \
+     "--proxy-headers", \
+     "--timeout-keep-alive", "75"]

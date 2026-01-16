@@ -8,7 +8,7 @@ import joblib
 from pathlib import Path
 import lightgbm as lgb
 
-from src.models.base import BaseAVMModel
+from ...src.models.base import BaseAVMModel
 from config.model_config import LIGHTGBM_PARAMS, LIGHTGBM_TRAINING
 from config.settings import MODEL_ARTIFACTS
 

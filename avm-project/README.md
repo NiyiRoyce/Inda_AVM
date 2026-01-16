@@ -259,7 +259,7 @@ pytest tests/ --cov=src
 - **Training Pipeline**: See `pipelines/train_pipeline.py`
 - **Model Details**: See `src/models/`
 - **Feature Engineering**: See `src/features/engineering.py`
-- **API Documentation**: See `deployment/predictor.py`
+- **API Documentation**: See `src/pipelines/inference_pipeline.py`
 
 
 
