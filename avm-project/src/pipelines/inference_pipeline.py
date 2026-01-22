@@ -9,11 +9,11 @@ from typing import Optional, Union
 import numpy as np
 import pandas as pd
 
-from ...src.models.ensemble import EnsemblePredictor
-from ...src.preprocessing.cleaners import DataCleaner
-from ...src.preprocessing.transformers import DataTransformer
-from ...src.features.engineering import FeatureEngineer
-from ...src.features.extractors import FeatureExtractor
+from src.models.ensemble import EnsemblePredictor
+from src.preprocessing.cleaners import DataCleaner
+from src.preprocessing.transformers import DataTransformer
+from src.features.engineering import FeatureEngineer
+from src.features.extractors import FeatureExtractor
 
 logger = logging.getLogger(__name__)
 

@@ -6,10 +6,10 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
-from ...src.models.linear import LinearAVMModel
-from ...src.models.residual import ResidualAVMModel
-from ...src.preprocessing.imputers import FeatureImputer
-from ...src.features.selectors import FeatureSelector
+from src.models.linear import LinearAVMModel
+from src.models.residual import ResidualAVMModel
+from src.preprocessing.imputers import FeatureImputer
+from src.features.selectors import FeatureSelector
 
 logger = logging.getLogger(__name__)
 

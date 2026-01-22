@@ -5,8 +5,8 @@ import logging
 import pandas as pd
 from typing import Optional
 
-from ...src.data.bigquery_client import BigQueryClient
-from ...src.data.validator import DataValidator
+from src.data.bigquery_client import BigQueryClient
+from src.data.validator import DataValidator
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,8 @@ class DataLoader:
         Args:
             project_id: GCP project ID
         """
-        self.bq_client = BigQueryClient(project_id=project_id)
+        self.project_id = project_id
+        self.bq_client = None
         self.validator = DataValidator()
     
     def load_and_validate(
@@ -39,7 +40,9 @@ class DataLoader:
         Returns:
             Loaded (and optionally validated) DataFrame
         """
-        # Load data
+        # Lazy-instantiate BigQuery client to avoid requiring ADC during tests
+        if self.bq_client is None:
+            self.bq_client = BigQueryClient(project_id=self.project_id)
         df = self.bq_client.load_master_listings()
         logger.info(f"Loaded {len(df)} rows from BigQuery")
         

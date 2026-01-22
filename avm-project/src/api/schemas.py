@@ -2,7 +2,7 @@
 API request/response schemas for AVM predictions.
 """
 from typing import Optional, List
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
 class PropertyFeatures(BaseModel):
@@ -28,14 +28,14 @@ class PropertyFeatures(BaseModel):
     police_station_distance_meters: Optional[float] = Field(None, ge=0, description="Distance to nearest police station")
     aerodrome_distance_meters: Optional[float] = Field(None, ge=0, description="Distance to nearest aerodrome")
     
-    @validator('latitude', 'longitude')
-    def validate_coordinates(cls, v, field):
+    @field_validator('latitude', 'longitude')
+    def validate_coordinates(cls, v, info):
         if v is None:
-            raise ValueError(f"{field.name} cannot be None")
+            raise ValueError(f"{info.field_name} cannot be None")
         return v
-    
-    class Config:
-        json_schema_extra = {
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "list_beds": 4.0,
                 "list_baths": 4.0,
@@ -53,6 +53,7 @@ class PropertyFeatures(BaseModel):
                 "aerodrome_distance_meters": 25000.0
             }
         }
+    )
 
 
 class PredictionRequest(BaseModel):
@@ -62,7 +63,7 @@ class PredictionRequest(BaseModel):
 
 class BatchPredictionRequest(BaseModel):
     """Request schema for batch property predictions."""
-    properties: List[PropertyFeatures] = Field(..., max_items=100, description="List of properties (max 100)")
+    properties: List[PropertyFeatures] = Field(..., max_length=100, description="List of properties (max 100)")
 
 
 class PredictionResponse(BaseModel):
@@ -74,8 +75,8 @@ class PredictionResponse(BaseModel):
     residual_correction: float = Field(..., description="Residual model correction")
     confidence_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="Prediction confidence (0-1)")
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "predicted_price": 450000000.0,
                 "log_price": 19.924,
@@ -84,6 +85,7 @@ class PredictionResponse(BaseModel):
                 "confidence_score": 0.85
             }
         }
+    )
 
 
 class BatchPredictionResponse(BaseModel):
@@ -106,11 +108,12 @@ class ErrorResponse(BaseModel):
     message: str = Field(..., description="Error message")
     detail: Optional[str] = Field(None, description="Detailed error information")
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "error": "ValidationError",
                 "message": "Invalid input data",
                 "detail": "latitude must be between 4.0 and 14.0"
             }
         }
+    )

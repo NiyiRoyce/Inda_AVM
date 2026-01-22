@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import structlog
 import pandas as pd
+import numpy as np
 from pathlib import Path
 
 from config import settings
@@ -77,7 +78,19 @@ def create_app() -> FastAPI:
     return app
 
 
-app = create_app()
+try:
+    app = create_app()
+except RuntimeError as e:
+    # Handle missing environment variables during import
+    logger.warning(
+        "Failed to create app with full configuration, using minimal fallback",
+        error=str(e)
+    )
+    # Create minimal FastAPI app fallback
+    app = FastAPI(
+        title="AVM API (Fallback)",
+        description="Minimal fallback application - environment not properly configured",
+    )
 
 
 @app.on_event("startup")
@@ -168,7 +181,7 @@ async def predict_property(
         
         return PredictionResponse(
             predicted_price=float(predicted_price),
-            log_price=float(pd.np.log(predicted_price)) if predicted_price > 0 else 0.0,
+            log_price=float(np.log(predicted_price)) if predicted_price > 0 else 0.0,
             baseline_price=float(predicted_price * 0.95),  # Placeholder
             residual_correction=float(predicted_price * 0.05),  # Placeholder
             confidence_score=0.85  # Placeholder - implement proper confidence scoring
@@ -228,7 +241,7 @@ async def predict_batch(
             prediction_responses.append(
                 PredictionResponse(
                     predicted_price=float(pred_price),
-                    log_price=float(pd.np.log(pred_price)) if pred_price > 0 else 0.0,
+                    log_price=float(np.log(pred_price)) if pred_price > 0 else 0.0,
                     baseline_price=float(pred_price * 0.95),  # Placeholder
                     residual_correction=float(pred_price * 0.05),  # Placeholder
                     confidence_score=0.85  # Placeholder
