@@ -39,8 +39,19 @@ ENV/
 *.ipynb
 
 # Environment variables
+# NEVER commit .env or .env.local files - they contain sensitive credentials
 .env
 .env.local
+*.env.local
+.env.*.local
+
+# Service account credentials
+src/config/service_account.json
+**/service_account*.json
+
+# Secrets
+**/credentials.json
+**/secrets/
 
 # Model artifacts (optional - uncomment if not versioning)
 # artifacts/models/*.pkl

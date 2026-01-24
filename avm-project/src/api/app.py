@@ -64,9 +64,10 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     
-    # Initialize inference pipeline
-    model_path = Path(settings.MODEL_ARTIFACTS_PATH).parent if settings.MODEL_ARTIFACTS_PATH else None
-    app.state.pipeline = InferencePipeline(model_path=model_path)
+    # Initialize inference pipeline - defer to lazy loading on first use
+    app.state.pipeline = None
+    app.state.pipeline_loaded = False
+    app.state.pipeline_error = None
     
     logger.info(
         "Application created",
@@ -80,8 +81,8 @@ def create_app() -> FastAPI:
 
 try:
     app = create_app()
-except RuntimeError as e:
-    # Handle missing environment variables during import
+except (RuntimeError, FileNotFoundError) as e:
+    # Handle missing environment variables or model files during import
     logger.warning(
         "Failed to create app with full configuration, using minimal fallback",
         error=str(e)
@@ -91,6 +92,9 @@ except RuntimeError as e:
         title="AVM API (Fallback)",
         description="Minimal fallback application - environment not properly configured",
     )
+    app.state.pipeline = None
+    app.state.pipeline_loaded = False
+    app.state.pipeline_error = str(e)
 
 
 @app.on_event("startup")

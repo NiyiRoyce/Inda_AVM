@@ -144,6 +144,96 @@ cd avm-project
 pip install -r requirements.txt
 ```
 
+### GCP Setup & Authentication
+
+#### 1. Configure Environment Variables
+
+Copy the example environment file and update with your settings:
+
+```bash
+cp .env.example .env.local
+# Edit .env.local with your GCP project details
+```
+
+Key variables to configure:
+
+```bash
+# GCP Authentication - Choose ONE:
+# Option A: Service Account File (Recommended for local development)
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/service_account.json
+SERVICE_ACCOUNT_JSON_PATH=/path/to/service_account.json
+
+# GCP Project Settings
+GCP_PROJECT_ID=your-gcp-project-id
+GCP_REGION=us-central1
+
+# BigQuery Configuration
+BIGQUERY_DATASET=your_dataset_name
+BIGQUERY_TRAIN_TABLE=your_training_table
+GCS_BUCKET=your-gcs-bucket-name
+```
+
+#### 2. Set Up Service Account Credentials
+
+**Option A: Service Account File (Recommended)**
+
+1. Download your service account JSON from GCP Console:
+   - Go to `APIs & Services > Service Accounts`
+   - Select your service account
+   - Click `Keys` tab
+   - Create a new JSON key
+   
+2. Place the file in your project:
+   ```bash
+   # Copy to the default location (src/config/service_account.json)
+   cp /downloads/my-service-account.json src/config/service_account.json
+   
+   # OR point to it via environment variable
+   export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service_account.json
+   ```
+
+**Option B: Application Default Credentials (ADC)**
+
+```bash
+# Authenticate via gcloud CLI (uses your user credentials)
+gcloud auth application-default login
+
+# This creates credentials in ~/.config/gcloud/application_default_credentials.json
+# Libraries will automatically find and use them
+```
+
+**Option C: Google Colab**
+
+For notebooks running in Colab:
+```python
+from src.config.notebook_setup import setup_notebook_environment
+setup_notebook_environment(load_credentials=True)
+# This will use Colab's built-in authentication
+```
+
+#### 3. Validate Configuration
+
+```bash
+# Test that environment is properly configured
+python -c "from src.config.env import validate_environment; validate_environment(require_gcp_credentials=True); print('✓ Configuration valid!')"
+```
+
+### Using Notebooks
+
+Each notebook includes environment setup. For example:
+
+```python
+# At the top of your notebook (jupyter/colab)
+from src.config.notebook_setup import setup_notebook_environment, get_bigquery_client
+
+# Initialize (loads .env, sets up GCP auth, validates config)
+setup_notebook_environment(load_credentials=True)
+
+# Create authenticated clients
+client = get_bigquery_client()
+df = client.query("SELECT * FROM `project.dataset.table`").to_dataframe()
+```
+
 ### Training
 
 **From BigQuery:**
@@ -172,6 +262,7 @@ python scripts/predict.py --input data/new_properties.csv --output predictions.c
 ```bash
 python scripts/upload_to_gcs.py --bucket your-bucket --prefix models
 ```
+
 
 ## 📊 Model Architecture
 

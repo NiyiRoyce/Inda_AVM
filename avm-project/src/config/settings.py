@@ -8,6 +8,20 @@ from pathlib import Path
 import json
 from typing import Optional
 
+# Load environment variables from .env files at startup
+try:
+    from dotenv import load_dotenv
+    # Load from .env.local first (local overrides), then .env (shared)
+    env_local = Path(__file__).resolve().parent.parent.parent / ".env.local"
+    env_shared = Path(__file__).resolve().parent.parent.parent / ".env"
+    
+    if env_local.exists():
+        load_dotenv(env_local, override=True)
+    elif env_shared.exists():
+        load_dotenv(env_shared, override=True)
+except ImportError:
+    pass  # python-dotenv not installed; environment variables must be set externally
+
 
 # --- helpers for robust env parsing ---------------------------------
 def getenv_bool(name: str, default: bool = False) -> bool:
@@ -96,7 +110,8 @@ def get_gcp_credentials() -> Optional[object]:
             from google.oauth2 import service_account
 
             return service_account.Credentials.from_service_account_file(gac)
-        except Exception:
+        except Exception as e:
+            print(f"Error loading credentials from GOOGLE_APPLICATION_CREDENTIALS: {e}")
             return None
 
     if SERVICE_ACCOUNT_JSON_PATH and SERVICE_ACCOUNT_JSON_PATH.exists():
@@ -106,9 +121,13 @@ def get_gcp_credentials() -> Optional[object]:
             with open(SERVICE_ACCOUNT_JSON_PATH) as f:
                 key_dict = json.load(f)
             return service_account.Credentials.from_service_account_info(key_dict)
-        except Exception:
+        except Exception as e:
+            print(f"Error loading credentials from {SERVICE_ACCOUNT_JSON_PATH}: {e}")
             return None
 
+    print(f"Warning: No service account credentials found. Checked paths:")
+    print(f"  - GOOGLE_APPLICATION_CREDENTIALS: {gac}")
+    print(f"  - SERVICE_ACCOUNT_JSON_PATH: {SERVICE_ACCOUNT_JSON_PATH}")
     return None
 
 

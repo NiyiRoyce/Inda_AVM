@@ -4,6 +4,7 @@ Provides reusable dependencies for request validation, authentication, and resou
 """
 from fastapi import HTTPException, status, Request, Depends
 from typing import Optional
+from pathlib import Path
 import structlog
 
 from config import settings
@@ -19,6 +20,7 @@ logger = structlog.get_logger()
 async def get_pipeline(request: Request) -> InferencePipeline:
     """
     Dependency to get the inference pipeline from app state.
+    Lazy loads the pipeline on first request if not already loaded.
     
     Args:
         request: FastAPI request object
@@ -27,15 +29,39 @@ async def get_pipeline(request: Request) -> InferencePipeline:
         InferencePipeline instance
         
     Raises:
-        HTTPException: If pipeline is not initialized
+        HTTPException: If pipeline cannot be initialized
     """
+    # Lazy load pipeline on first request
+    if not request.app.state.pipeline_loaded:
+        try:
+            model_path = Path(settings.MODEL_ARTIFACTS_PATH).parent if settings.MODEL_ARTIFACTS_PATH else None
+            request.app.state.pipeline = InferencePipeline(model_path=model_path)
+            request.app.state.pipeline_loaded = True
+            request.app.state.pipeline_error = None
+            logger.info("Inference pipeline loaded successfully on first request")
+        except FileNotFoundError as e:
+            logger.error("Failed to load pipeline: missing model artifacts", error=str(e))
+            request.app.state.pipeline_error = f"Model artifacts not found: {str(e)}"
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Prediction service is not ready. Models not found. Please train the models first. Error: {str(e)}"
+            )
+        except Exception as e:
+            logger.error("Failed to load pipeline", error=str(e))
+            request.app.state.pipeline_error = str(e)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Prediction service failed to initialize. Error: {str(e)}"
+            )
+    
     pipeline = request.app.state.pipeline
     
-    if pipeline is None or pipeline.ensemble is None:
-        logger.error("Pipeline requested but not initialized")
+    if pipeline is None:
+        error_msg = request.app.state.pipeline_error or "Unknown error"
+        logger.error("Pipeline not available", error=error_msg)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Prediction service is not ready. Models not loaded."
+            detail=f"Prediction service is not ready. {error_msg}"
         )
     
     return pipeline
