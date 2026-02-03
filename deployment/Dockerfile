@@ -1,4 +1,6 @@
+# ==================================================
 # Base image: Python 3.11 slim
+# ==================================================
 FROM python:3.11-slim
 
 # ==================================================
@@ -7,19 +9,19 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    ca-certificates \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        curl && \
+    rm -rf /var/lib/apt/lists/*
 
 # ==================================================
 # Python dependencies
 # ==================================================
-COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt . 
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
 # ==================================================
 # Application code
@@ -44,9 +46,6 @@ EXPOSE 8080
 # ==================================================
 # Production CMD for Vertex AI
 # ==================================================
-# Use --workers 1 for lightweight container
-# --timeout-keep-alive ensures the connection doesn't drop
-# Remove hot reload (reload=False)
 CMD ["uvicorn", "src.api.app:app", \
      "--host", "0.0.0.0", \
      "--port", "8080", \
