@@ -56,14 +56,13 @@ class PropertyFeatures(BaseModel):
     )
 
 
+# ==================================================
+# Single Prediction Schemas
+# ==================================================
+
 class PredictionRequest(BaseModel):
-    """Request schema for single property prediction."""
+    """Request schema for single property prediction (direct/local use)."""
     property: PropertyFeatures
-
-
-class BatchPredictionRequest(BaseModel):
-    """Request schema for batch property predictions."""
-    properties: List[PropertyFeatures] = Field(..., max_length=100, description="List of properties (max 100)")
 
 
 class PredictionResponse(BaseModel):
@@ -88,11 +87,80 @@ class PredictionResponse(BaseModel):
     )
 
 
+# ==================================================
+# Batch Prediction Schemas (Direct/Local Use)
+# ==================================================
+
+class BatchPredictionRequest(BaseModel):
+    """Request schema for batch property predictions (direct/local use)."""
+    properties: List[PropertyFeatures] = Field(..., max_length=100, description="List of properties (max 100)")
+
+
 class BatchPredictionResponse(BaseModel):
     """Response schema for batch predictions."""
     predictions: List[PredictionResponse]
     count: int = Field(..., description="Number of predictions")
 
+
+# ==================================================
+# Vertex AI Prediction Schemas
+# ==================================================
+# Vertex AI automatically wraps the incoming payload in an "instances" array
+# before forwarding to the container. Each element in "instances" maps to one
+# PredictionRequest (i.e. {"property": {...}}).
+#
+# On the response side, Vertex expects the predictions back under a
+# "predictions" key as a list.
+# ==================================================
+
+class VertexPredictRequest(BaseModel):
+    """
+    Vertex AI prediction request schema.
+
+    Vertex AI wraps the user's payload in an 'instances' array before
+    forwarding to the container. Each instance is a PredictionRequest
+    containing a single 'property' key.
+
+    Expected incoming payload shape:
+        {
+            "instances": [
+                {"property": { ...PropertyFeatures... }},
+                {"property": { ...PropertyFeatures... }}
+            ]
+        }
+    """
+    instances: List[PredictionRequest] = Field(
+        ...,
+        max_length=100,
+        description="List of prediction requests wrapped by Vertex AI (max 100)"
+    )
+
+
+class VertexPredictResponse(BaseModel):
+    """
+    Vertex AI prediction response schema.
+
+    Vertex AI expects the response to contain a 'predictions' key
+    with a list of prediction results, one per input instance,
+    in the same order.
+
+    Expected outgoing payload shape:
+        {
+            "predictions": [
+                { ...PredictionResponse... },
+                { ...PredictionResponse... }
+            ]
+        }
+    """
+    predictions: List[PredictionResponse] = Field(
+        ...,
+        description="List of prediction results, one per input instance"
+    )
+
+
+# ==================================================
+# Health & Error Schemas
+# ==================================================
 
 class HealthResponse(BaseModel):
     """Health check response."""

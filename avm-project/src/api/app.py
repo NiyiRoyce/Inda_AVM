@@ -1,196 +1,382 @@
 """
 FastAPI application for AVM prediction service.
+
+This module provides a production-ready API for real estate property valuation
+using machine learning models. It includes robust error handling, health checks,
+and both single and batch prediction endpoints.
 """
+
 from fastapi import FastAPI, HTTPException, status, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import structlog
 import pandas as pd
 import numpy as np
-from pathlib import Path
+import os
+from typing import Dict, Any
 
-from config import settings
-from config.env import validate_environment
-from api.schemas import (
+from src.config import settings
+from src.config.env import validate_environment
+from src.api.schemas import (
     PredictionRequest,
     BatchPredictionRequest,
+    VertexPredictRequest,
+    VertexPredictResponse,
     PredictionResponse,
     BatchPredictionResponse,
     HealthResponse,
-    ErrorResponse
+    ErrorResponse,
 )
-from api.dependencies import (
+from src.api.dependencies import (
     get_pipeline,
     validate_batch_size,
-    log_request,
-    get_request_context,
-    check_model_health
+    check_model_health,
 )
-from pipelines.inference_pipeline import InferencePipeline
+from src.pipelines.inference_pipeline import InferencePipeline
 
-# Configure structured logging
+# ==================================================
+# Logging Configuration
+# ==================================================
 structlog.configure(
     processors=[
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.add_log_level,
-        structlog.processors.JSONRenderer()
+        structlog.processors.JSONRenderer(),
     ]
 )
 
 logger = structlog.get_logger()
 
 
+# ==================================================
+# Application Factory
+# ==================================================
 def create_app() -> FastAPI:
-    """Create and configure FastAPI application."""
+    """
+    Create and configure the FastAPI application.
     
-    # Validate environment variables
-    validate_environment()
+    This factory pattern allows for easier testing and configuration management.
+    Validates environment in soft mode to prevent Cloud Run restart loops.
     
+    Returns:
+        FastAPI: Configured application instance
+    """
+    # Validate environment in NON-STRICT mode (Cloud Run safe)
+    env_error = None
+    try:
+        validate_environment(strict=False)
+    except Exception as e:
+        logger.error(
+            "Environment validation failed",
+            error=str(e),
+            exc_info=True,
+        )
+        env_error = str(e)
+
     app = FastAPI(
         title=settings.APP_NAME,
         version=settings.API_VERSION,
         debug=settings.DEBUG,
-        description="Automated Valuation Model (AVM) API for Nigerian Real Estate",
+        description="Automated Valuation Model (AVM) API for Real Estate",
         docs_url="/docs" if settings.DEBUG else None,
         redoc_url="/redoc" if settings.DEBUG else None,
     )
-    
-    # CORS middleware
+
+    # Configure CORS middleware
+    # TODO: Update allow_origins based on environment (production should be restrictive)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # Configure based on environment
+        allow_origins=["*"],  
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    
-    # Initialize inference pipeline - defer to lazy loading on first use
+
+    # Initialize pipeline state (lazy loading pattern)
     app.state.pipeline = None
     app.state.pipeline_loaded = False
     app.state.pipeline_error = None
-    
+    app.state.env_error = env_error  # Track environment validation state
+
     logger.info(
-        "Application created",
+        "Application created successfully",
         app_name=settings.APP_NAME,
         environment=settings.ENVIRONMENT,
-        debug=settings.DEBUG
+        debug=settings.DEBUG,
+        env_validation_passed=env_error is None,
     )
-    
+
     return app
 
 
+# ==================================================
+# Application Initialization with Safe Fallback
+# ==================================================
 try:
     app = create_app()
-except (RuntimeError, FileNotFoundError) as e:
-    # Handle missing environment variables or model files during import
+except Exception as e:
+    # Prevent container crashes in production environments (e.g., Cloud Run, Vertex AI)
+    # Create minimal fallback app that can still respond to health checks
     logger.warning(
         "Failed to create app with full configuration, using minimal fallback",
-        error=str(e)
+        error=str(e),
+        exc_info=True,
     )
-    # Create minimal FastAPI app fallback
+
     app = FastAPI(
-        title="AVM API (Fallback)",
-        description="Minimal fallback application - environment not properly configured",
+        title="AVM API (Fallback Mode)",
+        description="Minimal fallback application - environment configuration error",
     )
+
     app.state.pipeline = None
     app.state.pipeline_loaded = False
     app.state.pipeline_error = str(e)
+    app.state.env_error = str(e)
 
 
+# ==================================================
+# Lifecycle Event Handlers
+# ==================================================
 @app.on_event("startup")
 async def startup_event():
-    """Load models on application startup."""
-    logger.info("Starting up application...")
+    """
+    Application startup handler.
+    
+    Note: Models are loaded lazily on first prediction request via get_pipeline()
+    dependency to avoid blocking container startup in cloud environments.
+    """
+    logger.info("Application startup initiated")
     
     try:
-        # Models are loaded in InferencePipeline __init__
-        logger.info("Inference pipeline initialized successfully")
+        # Perform any startup validation or warmup here
+        # Actual model loading happens in get_pipeline() dependency
+        logger.info("Startup completed successfully")
     except Exception as e:
-        logger.error("Failed to initialize inference pipeline on startup", error=str(e))
-        # Allow app to start but predictions will fail with proper error
+        logger.error("Startup validation failed", error=str(e), exc_info=True)
+        # Don't fail startup - allow degraded mode operation
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Cleanup on application shutdown."""
-    logger.info("Shutting down application...")
+    """Application shutdown handler for cleanup operations."""
+    logger.info("Application shutdown initiated")
+    
+    try:
+        # Cleanup resources if needed
+        if hasattr(app.state, 'pipeline') and app.state.pipeline is not None:
+            # Perform any necessary cleanup
+            logger.info("Cleaned up pipeline resources")
+    except Exception as e:
+        logger.error("Error during shutdown", error=str(e))
+    
+    logger.info("Application shutdown completed")
 
+
+# ==================================================
+# API Routes
+# ==================================================
 
 @app.get("/", tags=["Root"])
-async def root():
-    """Root endpoint."""
+async def root() -> Dict[str, Any]:
+    """
+    Root endpoint providing basic service information.
+    
+    Returns:
+        Dict containing service metadata
+    """
     return {
         "service": settings.APP_NAME,
         "version": settings.API_VERSION,
         "status": "running",
-        "environment": settings.ENVIRONMENT
+        "environment": settings.ENVIRONMENT,
     }
 
 
-@app.get("/health", response_model=HealthResponse, tags=["Health"])
-async def health_check(health_data: dict = Depends(check_model_health)):
-    """Health check endpoint with detailed component status."""
+@app.get(
+    "/health",
+    response_model=HealthResponse,
+    tags=["Health"],
+    summary="Health check endpoint"
+)
+async def health_check() -> HealthResponse:
+    """
+    Health check endpoint for container orchestration and monitoring.
+    
+    This endpoint is designed to be safe for frequent polling:
+    - Never raises exceptions
+    - Doesn't load models (uses lazy loading status)
+    - Returns quickly
+    - Reports degraded state if environment validation failed
+    
+    Returns:
+        HealthResponse: Current health status of the service
+    """
+    healthy = True
+    
+    try:
+        health_data = check_model_health()
+        healthy = bool(health_data.get("healthy", False))
+    except Exception as e:
+        logger.warning("Health check failed", error=str(e))
+        healthy = False
+    
+    # Check if environment validation failed
+    if getattr(app.state, "env_error", None) is not None:
+        logger.warning(
+            "Health check reports degraded due to environment validation failure",
+            env_error=app.state.env_error,
+        )
+        healthy = False
+
     return HealthResponse(
-        status="healthy" if health_data["healthy"] else "degraded",
-        model_loaded=health_data["healthy"],
+        status="healthy" if healthy else "degraded",
+        model_loaded=healthy,
         version=settings.API_VERSION,
-        environment=settings.ENVIRONMENT
+        environment=settings.ENVIRONMENT,
     )
 
 
+# ==================================================
+# Vertex AI Prediction Endpoint
+# ==================================================
+# This MUST be defined before /predict/single — Vertex AI always hits /predict
+# and sends the payload wrapped in an "instances" array. This endpoint unwraps
+# it, runs predictions, and returns results in the format Vertex expects.
+# ==================================================
+
 @app.post(
     "/predict",
+    response_model=VertexPredictResponse,
+    status_code=status.HTTP_200_OK,
+    tags=["Predictions"],
+    summary="Vertex AI prediction endpoint (handles instances envelope)",
+    responses={
+        400: {"model": ErrorResponse, "description": "Invalid input data"},
+        500: {"model": ErrorResponse, "description": "Internal server error"}
+    }
+)
+async def vertex_predict(
+    request: VertexPredictRequest,
+    pipeline: InferencePipeline = Depends(get_pipeline),
+) -> VertexPredictResponse:
+    """
+    Vertex AI prediction endpoint.
+
+    Vertex AI wraps the user's payload in an 'instances' array before
+    forwarding to this endpoint. This handler unwraps each instance,
+    runs the prediction pipeline, and returns results in the format
+    Vertex expects: {"predictions": [...]}.
+
+    Args:
+        request: Vertex AI wrapped request containing instances array
+        pipeline: InferencePipeline instance (injected via dependency)
+
+    Returns:
+        VertexPredictResponse: Predictions list matching Vertex AI contract
+
+    Raises:
+        HTTPException: 400 for invalid input, 500 for processing errors
+    """
+    try:
+        results = []
+
+        for instance in request.instances:
+            # Each instance is a PredictionRequest with a .property field
+            features = instance.property.model_dump()
+
+            # Generate prediction
+            predicted_price = pipeline.predict_single(features)
+
+            results.append(
+                PredictionResponse(
+                    predicted_price=float(predicted_price),
+                    log_price=float(np.log(predicted_price)) if predicted_price > 0 else 0.0,
+                    baseline_price=float(predicted_price * 0.95),  # TODO: Replace with actual baseline
+                    residual_correction=float(predicted_price * 0.05),  # TODO: Replace with actual residual
+                    confidence_score=0.85,  # TODO: Implement proper confidence scoring
+                )
+            )
+
+        logger.info(
+            "Vertex prediction completed",
+            total_instances=len(request.instances),
+            total_predictions=len(results),
+        )
+
+        return VertexPredictResponse(predictions=results)
+
+    except ValueError as e:
+        logger.warning("Invalid input data", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid input: {str(e)}"
+        )
+    except Exception as e:
+        logger.error("Vertex prediction failed", error=str(e), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Prediction failed. Please try again later."
+        )
+
+
+# ==================================================
+# Single Property Prediction (Direct/Local Use)
+# ==================================================
+
+@app.post(
+    "/predict/single",
     response_model=PredictionResponse,
     status_code=status.HTTP_200_OK,
     tags=["Predictions"],
+    summary="Single property valuation prediction (direct use, not via Vertex)",
     responses={
-        400: {"model": ErrorResponse, "description": "Invalid input"},
-        500: {"model": ErrorResponse, "description": "Server error"}
+        400: {"model": ErrorResponse, "description": "Invalid input data"},
+        500: {"model": ErrorResponse, "description": "Internal server error"}
     }
 )
 async def predict_property(
     request: PredictionRequest,
-    pipeline: InferencePipeline = Depends(get_pipeline)
-):
+    pipeline: InferencePipeline = Depends(get_pipeline),
+) -> PredictionResponse:
     """
-    Predict property valuation for a single property.
+    Generate valuation prediction for a single property.
+
+    Use this endpoint when calling the API directly (e.g. locally or via
+    a custom proxy). For Vertex AI deployments, use /predict instead.
     
     Args:
         request: Property features for valuation
-        pipeline: InferencePipeline instance (injected)
+        pipeline: InferencePipeline instance (injected via dependency)
         
     Returns:
-        PredictionResponse with estimated price and metadata
+        PredictionResponse: Predicted price and metadata
+        
+    Raises:
+        HTTPException: 400 for invalid input, 500 for processing errors
     """
-    
     try:
-        # Convert Pydantic model to dict
+        # Extract features from request
         features = request.property.model_dump()
         
-        # Generate prediction using InferencePipeline
+        # Generate prediction
         predicted_price = pipeline.predict_single(features)
         
-        # Create DataFrame for detailed prediction info
-        df = pd.DataFrame([features])
-        df_processed = pipeline.preprocess_data(df)
-        
-        # Get ensemble components (if available)
-        # Note: This requires modifications to EnsemblePredictor to expose component predictions
-        # For now, we'll return the final prediction with placeholder values
-        
         logger.info(
-            "Prediction generated",
+            "Single prediction generated",
             predicted_price=predicted_price,
+            property_type=features.get('property_type'),
+            location=features.get('location')
         )
         
+        # Build response with calculated metrics
         return PredictionResponse(
             predicted_price=float(predicted_price),
             log_price=float(np.log(predicted_price)) if predicted_price > 0 else 0.0,
-            baseline_price=float(predicted_price * 0.95),  # Placeholder
-            residual_correction=float(predicted_price * 0.05),  # Placeholder
-            confidence_score=0.85  # Placeholder - implement proper confidence scoring
+            baseline_price=float(predicted_price * 0.95),  # TODO: Replace with actual baseline
+            residual_correction=float(predicted_price * 0.05),  # TODO: Replace with actual residual
+            confidence_score=0.85,  # TODO: Implement proper confidence scoring
         )
-        
+
     except ValueError as e:
         logger.warning("Invalid input data", error=str(e))
         raise HTTPException(
@@ -201,9 +387,13 @@ async def predict_property(
         logger.error("Prediction failed", error=str(e), exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Prediction failed: {str(e)}"
+            detail="Prediction failed. Please try again later."
         )
 
+
+# ==================================================
+# Batch Prediction (Direct/Local Use)
+# ==================================================
 
 @app.post(
     "/predict/batch",
@@ -211,58 +401,66 @@ async def predict_property(
     status_code=status.HTTP_200_OK,
     tags=["Predictions"],
     dependencies=[Depends(validate_batch_size)],
+    summary="Batch property valuation predictions (direct use, not via Vertex)",
     responses={
-        400: {"model": ErrorResponse, "description": "Invalid input"},
-        500: {"model": ErrorResponse, "description": "Server error"}
+        400: {"model": ErrorResponse, "description": "Invalid input or batch size exceeded"},
+        500: {"model": ErrorResponse, "description": "Internal server error"}
     }
 )
 async def predict_batch(
     request: BatchPredictionRequest,
-    pipeline: InferencePipeline = Depends(get_pipeline)
-):
+    pipeline: InferencePipeline = Depends(get_pipeline),
+) -> BatchPredictionResponse:
     """
-    Predict property valuations for multiple properties.
+    Generate valuation predictions for multiple properties.
+
+    Use this endpoint when calling the API directly (e.g. locally or via
+    a custom proxy). For Vertex AI deployments, use /predict instead —
+    Vertex handles batching via the instances array automatically.
+    
+    Efficient batch processing for up to 100 properties per request.
     
     Args:
         request: List of property features (max 100)
-        pipeline: InferencePipeline instance (injected)
+        pipeline: InferencePipeline instance (injected via dependency)
         
     Returns:
-        BatchPredictionResponse with predictions for all properties
+        BatchPredictionResponse: Predictions for all properties
+        
+    Raises:
+        HTTPException: 400 for invalid input, 500 for processing errors
     """
-    
     try:
-        # Convert Pydantic models to DataFrame
+        # Convert request to DataFrame for batch processing
         features_list = [prop.model_dump() for prop in request.properties]
         df = pd.DataFrame(features_list)
         
-        # Generate predictions using InferencePipeline
+        # Generate batch predictions
         predictions = pipeline.predict(df, include_preprocessing=True)
         
-        # Create response for each prediction
-        prediction_responses = []
-        for i, pred_price in enumerate(predictions):
-            prediction_responses.append(
-                PredictionResponse(
-                    predicted_price=float(pred_price),
-                    log_price=float(np.log(pred_price)) if pred_price > 0 else 0.0,
-                    baseline_price=float(pred_price * 0.95),  # Placeholder
-                    residual_correction=float(pred_price * 0.05),  # Placeholder
-                    confidence_score=0.85  # Placeholder
-                )
+        # Build response for each prediction
+        results = [
+            PredictionResponse(
+                predicted_price=float(p),
+                log_price=float(np.log(p)) if p > 0 else 0.0,
+                baseline_price=float(p * 0.95),  # TODO: Replace with actual baseline
+                residual_correction=float(p * 0.05),  # TODO: Replace with actual residual
+                confidence_score=0.85,  # TODO: Implement proper confidence scoring
             )
+            for p in predictions
+        ]
         
         logger.info(
             "Batch predictions generated",
-            total=len(predictions),
-            successful=len(prediction_responses)
+            total_requested=len(request.properties),
+            total_succeeded=len(results),
         )
         
         return BatchPredictionResponse(
-            predictions=prediction_responses,
-            count=len(prediction_responses)
+            predictions=results,
+            count=len(results)
         )
-        
+
     except ValueError as e:
         logger.warning("Invalid batch input data", error=str(e))
         raise HTTPException(
@@ -273,33 +471,42 @@ async def predict_batch(
         logger.error("Batch prediction failed", error=str(e), exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Batch prediction failed: {str(e)}"
+            detail="Batch prediction failed. Please try again later."
         )
 
+
+# ==================================================
+# Batch Prediction with Summary (Direct/Local Use)
+# ==================================================
 
 @app.post(
     "/predict/summary",
     tags=["Predictions"],
+    summary="Batch predictions with summary statistics",
     responses={
         400: {"model": ErrorResponse, "description": "Invalid input"},
-        500: {"model": ErrorResponse, "description": "Server error"}
+        500: {"model": ErrorResponse, "description": "Internal server error"}
     }
 )
 async def predict_with_summary(
     request: BatchPredictionRequest,
-    pipeline: InferencePipeline = Depends(get_pipeline)
-):
+    pipeline: InferencePipeline = Depends(get_pipeline),
+) -> Dict[str, Any]:
     """
-    Predict properties and return summary statistics.
+    Generate predictions with aggregated summary statistics.
+    
+    Useful for portfolio analysis and market insights.
     
     Args:
         request: List of property features
-        pipeline: InferencePipeline instance (injected)
+        pipeline: InferencePipeline instance (injected via dependency)
         
     Returns:
-        Predictions with summary statistics
+        Dict containing individual predictions and summary statistics
+        
+    Raises:
+        HTTPException: 400 for invalid input, 500 for processing errors
     """
-    
     try:
         # Convert to DataFrame
         features_list = [prop.model_dump() for prop in request.properties]
@@ -308,59 +515,98 @@ async def predict_with_summary(
         # Generate predictions
         predictions = pipeline.predict(df, include_preprocessing=True)
         
-        # Get summary statistics
+        # Calculate summary statistics
         summary = pipeline.get_prediction_summary(predictions)
         
-        # Create individual predictions
-        prediction_responses = []
-        for pred_price in predictions:
-            prediction_responses.append({
-                "predicted_price": float(pred_price),
-                "log_price": float(pd.np.log(pred_price)) if pred_price > 0 else 0.0
-            })
+        # Build response
+        prediction_list = [
+            {
+                "predicted_price": float(p),
+                "log_price": float(np.log(p)) if p > 0 else 0.0,
+            }
+            for p in predictions
+        ]
+        
+        logger.info(
+            "Summary prediction completed",
+            total=len(predictions),
+            summary=summary
+        )
         
         return {
-            "predictions": prediction_responses,
+            "predictions": prediction_list,
             "summary": summary,
-            "count": len(predictions)
+            "count": len(predictions),
         }
-        
+
+    except ValueError as e:
+        logger.warning("Invalid summary input data", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid input: {str(e)}"
+        )
     except Exception as e:
         logger.error("Summary prediction failed", error=str(e), exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Prediction failed: {str(e)}"
+            detail="Summary prediction failed. Please try again later."
         )
 
 
+# ==================================================
+# Global Exception Handler
+# ==================================================
 @app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
-    """Global exception handler for unhandled errors."""
+async def global_exception_handler(request, exc: Exception) -> JSONResponse:
+    """
+    Global exception handler for uncaught errors.
+    
+    Provides consistent error responses and comprehensive logging.
+    
+    Args:
+        request: The request that caused the exception
+        exc: The exception that was raised
+        
+    Returns:
+        JSONResponse with error details
+    """
     logger.error(
         "Unhandled exception",
         path=request.url.path,
         method=request.method,
         error=str(exc),
-        exc_info=True
+        exc_info=True,
     )
-    
+
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "error": "InternalServerError",
             "message": "An unexpected error occurred",
-            "detail": str(exc) if settings.DEBUG else None
-        }
+            "detail": str(exc) if settings.DEBUG else None,
+        },
     )
 
 
+# ==================================================
+# Local Development Entry Point
+# ==================================================
+# Note: In production (Docker/Cloud Run), use CMD in Dockerfile instead
 if __name__ == "__main__":
     import uvicorn
+
+    port = int(os.environ.get("PORT", 8080))
     
-    uvicorn.run(
-        "api.main:app",
+    logger.info(
+        "Starting development server",
         host="0.0.0.0",
-        port=8000,
-        reload=settings.DEBUG,
-        log_level="info"
+        port=port
+    )
+
+    uvicorn.run(
+        "src.api.app:app",  # Module path for hot reload
+        host="0.0.0.0",
+        port=port,
+        log_level="info",
+        reload=settings.DEBUG,  # Enable hot reload in debug mode
     )

@@ -50,3 +50,4 @@ temp/
 # OS
 .DS_Store
 Thumbs.db
+src/config/service_account.json

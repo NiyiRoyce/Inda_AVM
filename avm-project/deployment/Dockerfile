@@ -1,10 +1,12 @@
-FROM python:3.10-slim
+# Base image: Python 3.11 slim
+FROM python:3.11-slim
 
 # ==================================================
 # System setup
 # ==================================================
 WORKDIR /app
 
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
@@ -16,32 +18,38 @@ RUN apt-get update && apt-get install -y \
 # Python dependencies
 # ==================================================
 COPY requirements.txt .
-
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
 
 # ==================================================
 # Application code
 # ==================================================
-COPY . .
+COPY src/ ./src/
+COPY pipelines/ ./pipelines/
+COPY artifacts/ ./artifacts/
+COPY config/ ./config/
 
 # ==================================================
 # Environment variables
 # ==================================================
 ENV PYTHONUNBUFFERED=1
-ENV AIP_STORAGE_URI=/app/artifacts
 ENV PORT=8080
-
-# IMPORTANT:
-# Do NOT set GOOGLE_APPLICATION_CREDENTIALS
-# Vertex AI injects ADC automatically
+ENV AIP_STORAGE_URI=/app/artifacts
 
 # ==================================================
-# Runtime
+# Expose port
 # ==================================================
 EXPOSE 8080
 
-CMD ["uvicorn", "api.app:app", \
+# ==================================================
+# Production CMD for Vertex AI
+# ==================================================
+# Use --workers 1 for lightweight container
+# --timeout-keep-alive ensures the connection doesn't drop
+# Remove hot reload (reload=False)
+CMD ["uvicorn", "src.api.app:app", \
      "--host", "0.0.0.0", \
      "--port", "8080", \
+     "--workers", "1", \
      "--proxy-headers", \
      "--timeout-keep-alive", "75"]
